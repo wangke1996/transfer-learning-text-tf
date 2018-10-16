@@ -8,8 +8,7 @@ import pandas as pd
 import pickle
 import numpy as np
 
-TRAIN_PATH = "dbpedia_csv/train.csv"
-TEST_PATH = "dbpedia_csv/test.csv"
+TRAIN_DICT_PATH = "dbpedia_csv/train.csv"
 
 
 def download_dbpedia():
@@ -24,45 +23,49 @@ def clean_str(text):
     text = re.sub(r"[^A-Za-z0-9(),!?\'\`\"]", " ", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = text.strip().lower()
-
     return text
 
 
-def build_word_dict():
-    if not os.path.exists("word_dict.pickle"):
-        train_df = pd.read_csv(TRAIN_PATH, names=["class", "title", "content"])
-        contents = train_df["content"]
-
-        words = list()
-        for content in contents:
-            for word in word_tokenize(clean_str(content)):
-                words.append(word)
-
-        word_counter = collections.Counter(words).most_common()
-        word_dict = dict()
-        word_dict["<pad>"] = 0
-        word_dict["<unk>"] = 1
-        word_dict["<s>"] = 2
-        word_dict["</s>"] = 3
-        for word, count in word_counter:
-            if count > 1:
-                word_dict[word] = len(word_dict)
-
-        with open("word_dict.pickle", "wb") as f:
-            pickle.dump(word_dict, f)
-
-    else:
-        with open("word_dict.pickle", "rb") as f:
+def build_word_dict(dict_dir, vocabulary_size=None, dict_src_path=TRAIN_DICT_PATH):
+    if not os.path.exists(dict_dir):
+        os.makedirs(dict_dir)
+    dict_path = os.path.join(dict_dir, "word_dict.pickle")
+    if os.path.exists(dict_path):
+        with open(dict_path, "rb") as f:
             word_dict = pickle.load(f)
+        if vocabulary_size is None or len(word_dict) == vocabulary_size:
+            print("use word dictionary at %s, vocabulary size: %d" % (dict_path, len(word_dict)))
+            return word_dict
+    train_df = pd.read_csv(dict_src_path, names=["class", "title", "content"])
+    contents = train_df["content"]
+
+    words = list()
+    for content in contents:
+        for word in word_tokenize(clean_str(content)):
+            words.append(word)
+
+    word_counter = collections.Counter(words).most_common()
+    word_dict = dict()
+    word_dict["<pad>"] = 0
+    word_dict["<unk>"] = 1
+    word_dict["<s>"] = 2
+    word_dict["</s>"] = 3
+    for word, count in word_counter:
+        if vocabulary_size is None or len(word_dict) != vocabulary_size:
+            word_dict[word] = len(word_dict)
+
+    with open(dict_path, "wb") as f:
+        pickle.dump(word_dict, f)
+    print("build dictionary from %s, vocabulary size: %d" % (dict_path, len(word_dict)))
 
     return word_dict
 
 
-def build_word_dataset(step, word_dict, document_max_len):
+def build_word_dataset(train_path, test_path, step, word_dict, document_max_len):
     if step == "train":
-        df = pd.read_csv(TRAIN_PATH, names=["class", "title", "content"])
+        df = pd.read_csv(train_path, names=["class", "title", "content"])
     else:
-        df = pd.read_csv(TEST_PATH, names=["class", "title", "content"])
+        df = pd.read_csv(test_path, names=["class", "title", "content"])
 
     # Shuffle dataframe
     df = df.sample(frac=1)
@@ -71,7 +74,8 @@ def build_word_dataset(step, word_dict, document_max_len):
     x = list(map(lambda d: d[:document_max_len], x))
     x = list(map(lambda d: d + (document_max_len - len(d)) * [word_dict["<pad>"]], x))
 
-    y = list(map(lambda d: d - 1, list(df["class"])))
+    # y = list(map(lambda d: d - 1, list(df["class"])))
+    y = list(map(lambda d: d, list(df["class"])))
 
     return x, y
 

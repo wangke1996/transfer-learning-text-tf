@@ -1,4 +1,5 @@
-# Transfer Learning for Text Classification with Tensorflow
+# Transfer Learning for Text Classification with Tensorflow, fork fron
+# forked from dongjun-Lee/transfer-learning-text-tf
 
 Tensorflow implementation of [Semi-supervised Sequence Learning(https://arxiv.org/abs/1511.01432)](https://arxiv.org/abs/1511.01432).
  
@@ -18,25 +19,15 @@ DBpedia dataset is used for pre-training and training.
 
 ### Pre-train auto encoder or language model
 ```
-$ python pre_train.py --model="<MODEL>"
+$ python pre_train.py --model="<MODEL>" --model_name="<MODEL_NAME>" --dict_size="<DICT_SIZE>"
 ```
 (\<Model>: auto_encoder | language_model)
-
+(\<Model_Name>: Give a name to the model, default to "model")
+(\<Dict_Szie>: The limit of vocabulary dictionary size, default to 20000)
 ### Train LSTM text classification model
 ```
-$ python train.py --pre_trained="<MODEL>"
+$ python train.py --pre_trained="<MODEL>" --model_name="<MODEL_NAME>"
 ```
 (\<Model>: none | auto_encoder | language_model)
-
-
-## Experimental Results
-- Orange lines: LSTM
-- Blue lines: SA-LSTM
-- Red lines: LM-LSTM
-
-### Loss
-<img src="https://user-images.githubusercontent.com/6512394/42726945-089634b0-87d8-11e8-8f3e-0e986f1d4b51.PNG">
-
-### Accuracy
-<img src="https://user-images.githubusercontent.com/6512394/42726944-073e19e8-87d8-11e8-8a60-788fb109ea11.PNG">
+(\<Model_Name>: The pretrained model's name, default to "model")
 
