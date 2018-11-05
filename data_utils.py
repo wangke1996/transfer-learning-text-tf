@@ -61,7 +61,7 @@ def build_word_dict(dict_dir, vocabulary_size=None, dict_src_path=TRAIN_DICT_PAT
     return word_dict
 
 
-def build_word_dataset(train_path, test_path, step, word_dict, document_max_len):
+def build_word_dataset(train_path, test_path, step, word_dict, document_max_len, label_map=None):
     if step == "train":
         df = pd.read_csv(train_path, names=["class", "title", "content"])
     else:
@@ -76,7 +76,8 @@ def build_word_dataset(train_path, test_path, step, word_dict, document_max_len)
 
     # y = list(map(lambda d: d - 1, list(df["class"])))
     y = list(map(lambda d: d, list(df["class"])))
-
+    if label_map is not None:
+        y=[label_map[i] for i in y]
     return x, y
 
 

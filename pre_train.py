@@ -6,25 +6,27 @@ from model.language_model import LanguageModel
 from data_utils import build_word_dict, build_word_dataset, batch_iter, download_dbpedia
 from data_helper import write_csv_file
 
-BATCH_SIZE = 64
-NUM_EPOCHS = 10
-MAX_DOCUMENT_LEN = 100
-MAX_UNLABEL_DATA_NUM = 50000
-dataset_dir = 'data/movieDataset'
-train_text_dirs = [dataset_dir + '/unlabeled.txt', dataset_dir + '/0bit.txt', dataset_dir + '/1bit.txt']
-train_labels = [0, 0, 0]  # unsupervised
-output_csv_dir = dataset_dir + '/0bit_1bit_test'
-train_file = "language_model_train_"+str(MAX_UNLABEL_DATA_NUM)+".csv"
+
+# BATCH_SIZE = 64
+# NUM_EPOCHS = 10
+# MAX_DOCUMENT_LEN = 100
+# MAX_UNLABEL_DATA_NUM = 50000
+# dataset_dir = 'data/Markov/newsDataset'
+# train_text_dirs = [dataset_dir + '/unlabeled.txt', dataset_dir + '/0bit.txt', dataset_dir + '/5bit.txt']
+# train_labels = [0, 0, 0]  # unsupervised
+# output_csv_dir = dataset_dir + '/0bit_5bit_test'
+# train_file = "train_" + str(MAX_UNLABEL_DATA_NUM) + ".csv"
 
 
-def train(train_x, train_y, word_dict, args):
-    config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.5))
-    config.gpu_options.allow_growth = True
-    with tf.Session(config=config) as sess:
+def train(train_x, train_y, word_dict, args,model_dir):
+    # config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.5))
+    # config.gpu_options.allow_growth = True
+    # with tf.Session(config=config) as sess:
+    with tf.Session() as sess:
         if args.model == "auto_encoder":
-            model = AutoEncoder(word_dict, MAX_DOCUMENT_LEN)
+            model = AutoEncoder(word_dict, args.max_document_len)
         elif args.model == "language_model":
-            model = LanguageModel(word_dict, MAX_DOCUMENT_LEN)
+            model = LanguageModel(word_dict, args.max_document_len)
         else:
             raise ValueError("Invalid model: {0}. Use auto_encoder | language_model".format(args.model))
 
@@ -39,7 +41,7 @@ def train(train_x, train_y, word_dict, args):
         # Summary
         loss_summary = tf.summary.scalar("loss", model.loss)
         summary_op = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter(os.path.join(args.model, args.model_name), sess.graph)
+        summary_writer = tf.summary.FileWriter(model_dir, sess.graph)
 
         # Checkpoint
         saver = tf.train.Saver(tf.global_variables())
@@ -53,53 +55,64 @@ def train(train_x, train_y, word_dict, args):
             summary_writer.add_summary(summaries, step)
 
             if step % 100 == 0:
-                with open(os.path.join(args.model, args.model_name, "loss.txt"), "a") as f:
+                with open(os.path.join(model_dir, "loss.txt"), "a") as f:
                     print("step {0} : loss = {1}".format(step, loss), file=f)
                 print("step {0} : loss = {1}".format(step, loss))
 
         # Training loop
-        batches = batch_iter(train_x, train_y, BATCH_SIZE, NUM_EPOCHS)
+        batches = batch_iter(train_x, train_y, args.batch_size, args.num_epochs)
 
         for batch_x, _ in batches:
             train_step(batch_x)
             step = tf.train.global_step(sess, global_step)
 
             if step % 5000 == 0:
-                dir = os.path.join(args.model, args.model_name)
-                if os.path.exists(dir) is False:
-                    os.makedirs(dir)
-                saver.save(sess, os.path.join(dir, "model.ckpt"), global_step=step)
+                if os.path.exists(model_dir) is False:
+                    os.makedirs(model_dir)
+                saver.save(sess, os.path.join(model_dir, "model.ckpt"), global_step=step)
+        if os.path.exists(model_dir) is False:
+            os.makedirs(model_dir)
+        saver.save(sess, os.path.join(model_dir, "model.ckpt"), global_step=step)
 
 
-def logout_config(args, train_y, dict_size):
-    dir = os.path.join(args.model, args.model_name)
-    if not os.path.exists(dir):
-        os.makedirs(dir)
-    with open(os.path.join(dir, "loss.txt"), "w") as f:
-        print("BATCH_SIZE=%d, NUM_EPOCH=%d, MAX_LEN=%d, MAX_UNLABEL_DATA_NUM=%d, MAX_DICT_SIZE=%d" % (
-            BATCH_SIZE, NUM_EPOCHS, MAX_DOCUMENT_LEN, MAX_UNLABEL_DATA_NUM, args.dict_size), file=f)
-        print("dataset_dir: ", os.path.join(output_csv_dir, train_file), file=f)
-        print("train samples: %d" % len(train_y), file=f)
+def logout_config(args,model_dir, dict_size):
+    if not os.path.exists(model_dir):
+        os.makedirs(model_dir)
+    with open(os.path.join(model_dir, "loss.txt"), "w") as f:
+        # print("BATCH_SIZE=%d, NUM_EPOCH=%d, MAX_LEN=%d, MAX_UNLABEL_DATA_NUM=%d, MAX_DICT_SIZE=%d" % (
+        #     BATCH_SIZE, NUM_EPOCHS, MAX_DOCUMENT_LEN, MAX_UNLABEL_DATA_NUM, args.dict_size), file=f)
+        # print("dataset_dir: ", os.path.join(output_csv_dir, args.model + '_' + train_file), file=f)
+        # print("train samples: %d" % len(train_y), file=f)
+        print(str(args),file=f)
         print("generated dictionary size: %d" % dict_size, file=f)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="auto_encoder", help="auto_encoder | language_model")
-    parser.add_argument("--model_name", type=str, default="model", help="the folder name of the model")
+    # parser.add_argument("--model_name", type=str, default="model", help="the folder name of the model")
     parser.add_argument("--dict_size", type=int, default=20000, help="the max size of word dictionary")
+    parser.add_argument("--data_folder", type=str, default="ACL", help="ACL | Markov | huffman_tree | two_tree")
+    parser.add_argument("--data_type", type=str, default="news", help="movie | news | tweet")
+    parser.add_argument("--unlabeled_data_num", type=int, default=50000, help="how many unlabeled data samples to use")
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size")
+    parser.add_argument("--num_epochs", type=int, default=10, help="epoch num")
+    parser.add_argument("--max_document_len", type=int, default=100, help="max length of sentence")
     args = parser.parse_args()
 
-    if not os.path.exists("dbpedia_csv"):
-        print("Downloading dbpedia dataset...")
-        download_dbpedia()
-
-    write_csv_file(train_text_dirs, train_labels, output_csv_dir, train_file, MAX_UNLABEL_DATA_NUM)
+    dataset_dir = os.path.join("dataset", args.data_folder, args.data_type)
+    unlabeled_text_dirs = [os.path.join(dataset_dir, args.data_type + '.txt')]
+    model_dir = os.path.join(args.model, args.data_folder, args.data_type,
+                             str(args.unlabeled_data_num))
+    unlabeled_csv_file='unlabeled_'+str(args.unlabeled_data_num)+'.csv'
+    unlabeled_csv_path = os.path.join(model_dir, unlabeled_csv_file)
+    if not os.path.exists(unlabeled_csv_path):
+        write_csv_file(unlabeled_text_dirs, [-1], model_dir, unlabeled_csv_file, args.unlabeled_data_num)
     print("\nBuilding dictionary..")
-    dict_src_path = os.path.join(output_csv_dir, train_file)
-    word_dict = build_word_dict(os.path.join(args.model, args.model_name), args.dict_size, dict_src_path)
+    word_dict = build_word_dict(model_dir, args.dict_size, unlabeled_csv_path)
     print("Preprocessing dataset..")
-    train_x, train_y = build_word_dataset(os.path.join(output_csv_dir, train_file), None, "train", word_dict,
-                                          MAX_DOCUMENT_LEN)
-    logout_config(args, train_y, len(word_dict))
-    train(train_x, train_y, word_dict, args)
+    train_x, train_y = build_word_dataset(unlabeled_csv_path, None, "train",
+                                          word_dict,
+                                          args.max_document_len)
+    logout_config(args, model_dir, len(word_dict))
+    train(train_x, train_y, word_dict, args,model_dir)
