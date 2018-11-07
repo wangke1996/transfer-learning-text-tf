@@ -1,33 +1,24 @@
+# python example to infer document vectors from trained doc2vec model
+import gensim.models as g
 import tensorflow as tf
+import numpy as np
 import argparse
 import os
 import pickle as pkl
-import time
-import numpy as np
-from model.word_rnn import WordRNN
-from data_utils import build_word_dict, build_word_dataset, batch_iter, download_dbpedia
-from data_helper import write_csv_files
+from random import shuffle
+from model.softmax_classifier import SoftmaxClassifier
+from data_utils import batch_iter
+# os.environ['CUDA_VISIBLE_DEVICES']='0'
+# os.environ['CUDA_VISIBLE_DEVICES']='1'
 
-
-# NUM_CLASS = 2
-# BATCH_SIZE = 64
-# NUM_EPOCHS = 30
-# MAX_DOCUMENT_LEN = 100
-# MAX_DATA_NUM = 8000
-# output_csv_dir = 'data/ACL/newsDataset/0bit_1bit_test'
-# train_text_dirs = [output_csv_dir + '/0bit_train.txt', output_csv_dir + '/1bit_train.txt']
-# train_labels = [0, 1]
-# test_text_dirs = [output_csv_dir + '/0bit_test.txt', output_csv_dir + '/1bit_test.txt']
-# test_labels = [0, 1]
-# train_file = "train.csv"
-# test_file = "test.csv"
-
-
-def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
+def train(train_x, train_y, test_x, test_y, args):
+    # config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.5))
+    # config.gpu_options.allow_growth = True
+    # with tf.Session(config=config) as sess:
     with tf.Session() as sess:
         BATCH_SIZE = args.batch_size
         NUM_EPOCHS = args.num_epochs
-        model = WordRNN(vocabulary_size, args.max_document_len, len(args.labels))
+        model = SoftmaxClassifier(len(train_x[0]),len(args.labels))
 
         # Define training procedure
         global_step = tf.Variable(0, trainable=False)
@@ -45,15 +36,6 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
         # Initialize all variables
         sess.run(tf.global_variables_initializer())
 
-        # Load variables from pre-trained model
-        if not args.pre_trained == "none":
-            pre_trained_variables = [v for v in tf.global_variables()
-                                     if (v.name.startswith("embedding") or v.name.startswith(
-                    "rnn")) and "Adam" not in v.name]
-            saver = tf.train.Saver(pre_trained_variables)
-            ckpt = tf.train.get_checkpoint_state(args.model_dir)
-            saver.restore(sess, ckpt.model_checkpoint_path)
-
         def train_step(batch_x, batch_y):
             feed_dict = {
                 model.x: batch_x,
@@ -64,7 +46,7 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
             _, step, summaries, loss = sess.run([train_op, global_step, summary_op, model.loss], feed_dict=feed_dict)
             summary_writer.add_summary(summaries, step)
 
-            if step % 100 == 0:
+            if step % 1000 == 0:
                 with open(os.path.join(args.summary_dir, "accuracy.txt"), "a") as f:
                     print("step {0} : loss = {1}".format(step, loss), file=f)
                 print("step {0} : loss = {1}".format(step, loss))
@@ -126,7 +108,7 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
             train_step(batch_x, batch_y)
             step = tf.train.global_step(sess, global_step)
 
-            if step % 200 == 0:
+            if step % 1000 == 0:
                 test_p, test_r, test_f, test_a, test_s, test_aa, _, _ = test_accuracy(test_x, test_y)
                 write_accuracy(test_p, test_r, test_f, test_a, test_s, test_aa, step)
         test_p, test_r, test_f, test_a, test_s, test_aa, labels, predictions = test_accuracy(test_x, test_y)
@@ -136,11 +118,39 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
             pkl.dump(final_result, f)
 
 
+def build_dataset(text_dirs, label_map, args, m, type='train'):
+    inputs = []
+    outputs = []
+    pkl_folder=os.path.join(args.model_dir,type)
+    if not os.path.exists(pkl_folder):
+        os.makedirs(pkl_folder)
+    for file_path, label in zip(text_dirs, args.labels):
+        file_name=os.path.split(file_path)[-1]
+        pkl_path = os.path.join(pkl_folder,file_name + '.pkl')
+        if os.path.exists(pkl_path):
+            with open(pkl_path, 'rb') as f:
+                x = pkl.load(f)
+                y = pkl.load(f)
+        else:
+            with open(file_path, 'r', encoding='utf8', errors='ignore') as f:
+                x = f.readlines()
+            x = list(map(lambda d: d.strip().split(), x))
+            x = list(map(lambda d: m.infer_vector(d, alpha=args.start_lr, steps=args.infer_epochs), x))
+            x = list(map(lambda d: d.tolist(), x))
+            y = [label] * len(x)
+            with open(pkl_path, 'wb') as f:
+                pkl.dump(x, f)
+                pkl.dump(y, f)
+        inputs.extend(x)
+        outputs.extend([label_map[l] for l in y])
+    samples = list(zip(inputs, outputs))
+    shuffle(samples)
+    inputs, outputs = zip(*samples)
+    return list(inputs), list(outputs)
+
+
 def logout_config(args, train_y, test_y):
     with open(os.path.join(args.summary_dir, "accuracy.txt"), "w") as f:
-        # print("NUM_CLASS=%d, BATCH_SIZE=%d, NUM_EPOCH=%d, MAX_LEN=%d" % (
-        #     NUM_CLASS, BATCH_SIZE, NUM_EPOCHS, MAX_DOCUMENT_LEN), file=f)
-        # print("dataset_dir: ", output_csv_dir, file=f)
         print(str(args), file=f)
 
         labels = list(set(train_y))
@@ -158,7 +168,7 @@ def logout_config(args, train_y, test_y):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pre_trained", type=str, default="auto_encoder", help="none | auto_encoder | language_model")
+    parser.add_argument("--method", type=str, default="PVDM", help="PVDM | PVDBOW")
     parser.add_argument("--data_folder", type=str, default="ACL", help="ACL | Markov | huffman_tree | two_tree")
     parser.add_argument("--data_type", type=str, default="news", help="movie | news | tweet")
     parser.add_argument("--unlabeled_data_num", type=int, default=50000,
@@ -166,10 +176,12 @@ if __name__ == "__main__":
     parser.add_argument("--labeled_data_num", type=int, default=8000, help="train data samples for each label")
     parser.add_argument("--test_data_num", type=int, default=2000, help="test data samples for each label")
     parser.add_argument("--labels", nargs='+', type=int, default=[0, 1], help="classes to classify")
-    parser.add_argument("--batch_size", type=int, default=64, help="batch size")
-    parser.add_argument("--num_epochs", type=int, default=40, help="epoch num")
-    parser.add_argument("--max_document_len", type=int, default=100, help="max length of sentence")
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size for training classifier")
+    parser.add_argument("--num_epochs", type=int, default=150, help="epoch num for training classifier")
+    parser.add_argument("--infer_epochs", type=int, default=1000, help="epoch num for inferring sentence vector")
+    parser.add_argument("--start_lr", type=float, default=0.01, help="start learning rate for inferring")
     args = parser.parse_args()
+    args.pre_trained="doc2vec"
 
     dataset_dir = os.path.join("dataset", args.data_folder, args.data_type)
     train_text_dirs = []
@@ -192,26 +204,24 @@ if __name__ == "__main__":
             with open(test_text_dir, 'w', encoding='utf8') as f_test:
                 f_test.writelines(all_lines[-args.test_data_num:])
 
-    model_dir = os.path.join(args.pre_trained, args.data_folder, args.data_type, str(args.unlabeled_data_num))
+    model_dir = os.path.join(args.pre_trained, args.data_folder, args.data_type, str(args.unlabeled_data_num),
+                             args.method)
     path = os.path.join(model_dir, 'bit_'.join([str(x) for x in args.labels]) + 'bit_' + str(args.labeled_data_num))
     if os.path.exists(path) is not True:
         os.makedirs(path)
     args.summary_dir = path
     args.model_dir = model_dir
 
-    write_csv_files(train_text_dirs, test_text_dirs, args.labels, args.labels, path, 'train.csv', 'test.csv',
-                    args.labeled_data_num, args.test_data_num)
-    train_path = os.path.join(path, 'train.csv')
-    test_path = os.path.join(path, 'test.csv')
-    print("\nBuilding dictionary..")
-    word_dict = build_word_dict(model_dir,train_path)
-    print("Preprocessing dataset..")
     label_map = dict()
     k = 0
     for label in args.labels:
         label_map[label] = k
         k = k + 1
-    train_x, train_y = build_word_dataset(train_path, test_path, "train", word_dict, args.max_document_len, label_map)
-    test_x, test_y = build_word_dataset(train_path, test_path, "test", word_dict, args.max_document_len, label_map)
+    print("loading model...")
+    m = g.Doc2Vec.load(os.path.join(model_dir, 'model.bin'))
+    print("inferring doc vectors and preparing dataset...")
+    train_x, train_y = build_dataset(train_text_dirs, label_map, args, m,'train')
+    test_x, test_y = build_dataset(test_text_dirs, label_map, args, m,'test')
     logout_config(args, train_y, test_y)
-    train(train_x, train_y, test_x, test_y, len(word_dict), args)
+    print("begin training...")
+    train(train_x, train_y, test_x, test_y, args)
