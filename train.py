@@ -22,8 +22,12 @@ from data_helper import write_csv_files
 # train_file = "train.csv"
 # test_file = "test.csv"
 
-
+# os.environ['CUDA_VISIBLE_DEVICES']='0'
+# os.environ['CUDA_VISIBLE_DEVICES']='1'
 def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
+    # config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.5))
+    # config.gpu_options.allow_growth = True
+    # with tf.Session(config=config) as sess:
     with tf.Session() as sess:
         BATCH_SIZE = args.batch_size
         NUM_EPOCHS = args.num_epochs
@@ -34,7 +38,7 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
         params = tf.trainable_variables()
         gradients = tf.gradients(model.loss, params)
         clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
-        optimizer = tf.train.AdamOptimizer(0.001)
+        optimizer = tf.train.AdamOptimizer(args.lr)
         train_op = optimizer.apply_gradients(zip(clipped_gradients, params), global_step=global_step)
 
         # Summary
@@ -167,6 +171,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_data_num", type=int, default=2000, help="test data samples for each label")
     parser.add_argument("--labels", nargs='+', type=int, default=[0, 1], help="classes to classify")
     parser.add_argument("--batch_size", type=int, default=64, help="batch size")
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--num_epochs", type=int, default=40, help="epoch num")
     parser.add_argument("--max_document_len", type=int, default=100, help="max length of sentence")
     args = parser.parse_args()
@@ -174,6 +179,10 @@ if __name__ == "__main__":
     dataset_dir = os.path.join("dataset", args.data_folder, args.data_type)
     train_text_dirs = []
     test_text_dirs = []
+    if not os.path.exists(os.path.join(dataset_dir, 'train')):
+        os.makedirs(os.path.join(dataset_dir, 'train'))
+    if not os.path.exists(os.path.join(dataset_dir, 'test')):
+        os.makedirs(os.path.join(dataset_dir, 'test'))
     for label in args.labels:
         train_text_dir = os.path.join(dataset_dir, 'train',
                                       args.data_type + '_' + str(label) + 'bit_' + str(args.labeled_data_num) + '.txt')
@@ -204,7 +213,10 @@ if __name__ == "__main__":
     train_path = os.path.join(path, 'train.csv')
     test_path = os.path.join(path, 'test.csv')
     print("\nBuilding dictionary..")
-    word_dict = build_word_dict(model_dir,train_path)
+    if args.pre_trained == 'none':
+        word_dict = build_word_dict(model_dir, None, train_path)
+    else:
+        word_dict = build_word_dict(model_dir, None)
     print("Preprocessing dataset..")
     label_map = dict()
     k = 0

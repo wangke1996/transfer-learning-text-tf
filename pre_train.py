@@ -17,8 +17,10 @@ from data_helper import write_csv_file
 # output_csv_dir = dataset_dir + '/0bit_5bit_test'
 # train_file = "train_" + str(MAX_UNLABEL_DATA_NUM) + ".csv"
 
+# os.environ['CUDA_VISIBLE_DEVICES']='0'
+# os.environ['CUDA_VISIBLE_DEVICES']='1'
 
-def train(train_x, train_y, word_dict, args,model_dir):
+def train(train_x, train_y, word_dict, args, model_dir):
     # config = tf.ConfigProto(gpu_options=tf.GPUOptions(per_process_gpu_memory_fraction=0.5))
     # config.gpu_options.allow_growth = True
     # with tf.Session(config=config) as sess:
@@ -35,7 +37,7 @@ def train(train_x, train_y, word_dict, args,model_dir):
         params = tf.trainable_variables()
         gradients = tf.gradients(model.loss, params)
         clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
-        optimizer = tf.train.AdamOptimizer(0.001)
+        optimizer = tf.train.AdamOptimizer(args.lr)
         train_op = optimizer.apply_gradients(zip(clipped_gradients, params), global_step=global_step)
 
         # Summary
@@ -75,7 +77,7 @@ def train(train_x, train_y, word_dict, args,model_dir):
         saver.save(sess, os.path.join(model_dir, "model.ckpt"), global_step=step)
 
 
-def logout_config(args,model_dir, dict_size):
+def logout_config(args, model_dir, dict_size):
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     with open(os.path.join(model_dir, "loss.txt"), "w") as f:
@@ -83,7 +85,7 @@ def logout_config(args,model_dir, dict_size):
         #     BATCH_SIZE, NUM_EPOCHS, MAX_DOCUMENT_LEN, MAX_UNLABEL_DATA_NUM, args.dict_size), file=f)
         # print("dataset_dir: ", os.path.join(output_csv_dir, args.model + '_' + train_file), file=f)
         # print("train samples: %d" % len(train_y), file=f)
-        print(str(args),file=f)
+        print(str(args), file=f)
         print("generated dictionary size: %d" % dict_size, file=f)
 
 
@@ -96,6 +98,7 @@ if __name__ == "__main__":
     parser.add_argument("--data_type", type=str, default="news", help="movie | news | tweet")
     parser.add_argument("--unlabeled_data_num", type=int, default=50000, help="how many unlabeled data samples to use")
     parser.add_argument("--batch_size", type=int, default=64, help="batch size")
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--num_epochs", type=int, default=10, help="epoch num")
     parser.add_argument("--max_document_len", type=int, default=100, help="max length of sentence")
     args = parser.parse_args()
@@ -104,7 +107,7 @@ if __name__ == "__main__":
     unlabeled_text_dirs = [os.path.join(dataset_dir, args.data_type + '.txt')]
     model_dir = os.path.join(args.model, args.data_folder, args.data_type,
                              str(args.unlabeled_data_num))
-    unlabeled_csv_file='unlabeled_'+str(args.unlabeled_data_num)+'.csv'
+    unlabeled_csv_file = 'unlabeled_' + str(args.unlabeled_data_num) + '.csv'
     unlabeled_csv_path = os.path.join(model_dir, unlabeled_csv_file)
     if not os.path.exists(unlabeled_csv_path):
         write_csv_file(unlabeled_text_dirs, [-1], model_dir, unlabeled_csv_file, args.unlabeled_data_num)
@@ -115,4 +118,4 @@ if __name__ == "__main__":
                                           word_dict,
                                           args.max_document_len)
     logout_config(args, model_dir, len(word_dict))
-    train(train_x, train_y, word_dict, args,model_dir)
+    train(train_x, train_y, word_dict, args, model_dir)

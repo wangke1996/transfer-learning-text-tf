@@ -25,7 +25,7 @@ def train(train_x, train_y, test_x, test_y, args):
         params = tf.trainable_variables()
         gradients = tf.gradients(model.loss, params)
         clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
-        optimizer = tf.train.AdamOptimizer(0.001)
+        optimizer = tf.train.AdamOptimizer(args.lr)
         train_op = optimizer.apply_gradients(zip(clipped_gradients, params), global_step=global_step)
 
         # Summary
@@ -177,6 +177,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_data_num", type=int, default=2000, help="test data samples for each label")
     parser.add_argument("--labels", nargs='+', type=int, default=[0, 1], help="classes to classify")
     parser.add_argument("--batch_size", type=int, default=64, help="batch size for training classifier")
+    parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--num_epochs", type=int, default=150, help="epoch num for training classifier")
     parser.add_argument("--infer_epochs", type=int, default=1000, help="epoch num for inferring sentence vector")
     parser.add_argument("--start_lr", type=float, default=0.01, help="start learning rate for inferring")

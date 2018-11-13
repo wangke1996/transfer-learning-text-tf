@@ -20,7 +20,12 @@ def download_dbpedia():
 
 
 def clean_str(text):
-    text = re.sub(r"[^A-Za-z0-9(),!?\'\`\"]", " ", text)
+    if re.match('[\u4e00-\u9fa5]+', text) is not None:
+        if len(text)%4==3:
+            text=text+'。'
+        text = ' '.join(text)
+    else:
+        text = re.sub(r"[^A-Za-z0-9(),!?\'\`\"]", " ", text)
     text = re.sub(r"\s{2,}", " ", text)
     text = text.strip().lower()
     return text
@@ -77,7 +82,7 @@ def build_word_dataset(train_path, test_path, step, word_dict, document_max_len,
     # y = list(map(lambda d: d - 1, list(df["class"])))
     y = list(map(lambda d: d, list(df["class"])))
     if label_map is not None:
-        y=[label_map[i] for i in y]
+        y = [label_map[i] for i in y]
     return x, y
 
 
