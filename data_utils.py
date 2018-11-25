@@ -7,6 +7,7 @@ import collections
 import pandas as pd
 import pickle
 import numpy as np
+import random
 
 TRAIN_DICT_PATH = "dbpedia_csv/train.csv"
 
@@ -21,9 +22,15 @@ def download_dbpedia():
 
 def clean_str(text):
     if re.match('[\u4e00-\u9fa5]+', text) is not None:
-        if len(text)%4==3:
-            text=text+'。'
-        text = ' '.join(text)
+        if len(text) % 4 == 3:
+            text = text + '。'
+        char_list = list(text)
+        for i, index in enumerate([x.start() for x in re.finditer('[，。？！：]', text)]):
+            if i % 2 == 0:
+                char_list[index] = '，'
+            else:
+                char_list[index] = '。'
+        text = ' '.join(char_list)
     else:
         text = re.sub(r"[^A-Za-z0-9(),!?\'\`\"]", " ", text)
     text = re.sub(r"\s{2,}", " ", text)
@@ -38,9 +45,9 @@ def build_word_dict(dict_dir, vocabulary_size=None, dict_src_path=TRAIN_DICT_PAT
     if os.path.exists(dict_path):
         with open(dict_path, "rb") as f:
             word_dict = pickle.load(f)
-        if vocabulary_size is None or len(word_dict) == vocabulary_size:
-            print("use word dictionary at %s, vocabulary size: %d" % (dict_path, len(word_dict)))
-            return word_dict
+        # if vocabulary_size is None or len(word_dict) == vocabulary_size:
+        print("use word dictionary at %s, vocabulary size: %d" % (dict_path, len(word_dict)))
+        return word_dict
     train_df = pd.read_csv(dict_src_path, names=["class", "title", "content"])
     contents = train_df["content"]
 
@@ -66,7 +73,7 @@ def build_word_dict(dict_dir, vocabulary_size=None, dict_src_path=TRAIN_DICT_PAT
     return word_dict
 
 
-def build_word_dataset(train_path, test_path, step, word_dict, document_max_len, label_map=None):
+def build_word_dataset(train_path, test_path, step, word_dict, document_max_len, label_map=None, up_sample=0):
     if step == "train":
         df = pd.read_csv(train_path, names=["class", "title", "content"])
     else:
@@ -83,6 +90,13 @@ def build_word_dataset(train_path, test_path, step, word_dict, document_max_len,
     y = list(map(lambda d: d, list(df["class"])))
     if label_map is not None:
         y = [label_map[i] for i in y]
+    if step == 'train' and up_sample > 0:
+        up_samples = len(np.unique(y)) * up_sample
+        # if up_samples > len(y):
+        z = list(zip(x, y))
+        z = z * (int(up_samples / len(y)) + 1)
+        z = random.sample(z, up_samples)
+        x, y = zip(*z)
     return x, y
 
 

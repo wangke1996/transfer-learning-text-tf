@@ -15,7 +15,9 @@ class SoftmaxClassifier(object):
             dropout = tf.nn.dropout(fc_output, self.keep_prob)
 
         with tf.name_scope("output"):
+            # self.logits = tf.layers.dense(dropout, num_class, activation=tf.nn.relu)
             self.logits = tf.layers.dense(dropout, num_class)
+            # self.logits = tf.layers.dense(self.x, num_class)
             self.predictions = tf.argmax(self.logits, -1, output_type=tf.int32)
 
         with tf.name_scope("loss"):

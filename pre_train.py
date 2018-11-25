@@ -91,16 +91,16 @@ def logout_config(args, model_dir, dict_size):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="auto_encoder", help="auto_encoder | language_model")
+    parser.add_argument("--model", type=str, default="language_model", help="auto_encoder | language_model")
     # parser.add_argument("--model_name", type=str, default="model", help="the folder name of the model")
     parser.add_argument("--dict_size", type=int, default=20000, help="the max size of word dictionary")
     parser.add_argument("--data_folder", type=str, default="ACL", help="ACL | Markov | huffman_tree | two_tree")
     parser.add_argument("--data_type", type=str, default="news", help="movie | news | tweet")
     parser.add_argument("--unlabeled_data_num", type=int, default=50000, help="how many unlabeled data samples to use")
-    parser.add_argument("--batch_size", type=int, default=64, help="batch size")
+    parser.add_argument("--batch_size", type=int, default=128, help="batch size")
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
     parser.add_argument("--num_epochs", type=int, default=10, help="epoch num")
-    parser.add_argument("--max_document_len", type=int, default=100, help="max length of sentence")
+    parser.add_argument("--max_document_len", type=int, default=30, help="max length of sentence")
     args = parser.parse_args()
 
     dataset_dir = os.path.join("dataset", args.data_folder, args.data_type)

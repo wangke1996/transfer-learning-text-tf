@@ -8,6 +8,8 @@ import pickle as pkl
 from random import shuffle
 from model.softmax_classifier import SoftmaxClassifier
 from data_utils import batch_iter
+
+
 # os.environ['CUDA_VISIBLE_DEVICES']='0'
 # os.environ['CUDA_VISIBLE_DEVICES']='1'
 
@@ -18,7 +20,7 @@ def train(train_x, train_y, test_x, test_y, args):
     with tf.Session() as sess:
         BATCH_SIZE = args.batch_size
         NUM_EPOCHS = args.num_epochs
-        model = SoftmaxClassifier(len(train_x[0]),len(args.labels))
+        model = SoftmaxClassifier(len(train_x[0]), len(args.labels))
 
         # Define training procedure
         global_step = tf.Variable(0, trainable=False)
@@ -26,7 +28,9 @@ def train(train_x, train_y, test_x, test_y, args):
         gradients = tf.gradients(model.loss, params)
         clipped_gradients, _ = tf.clip_by_global_norm(gradients, 5.0)
         optimizer = tf.train.AdamOptimizer(args.lr)
+        # optimizer=tf.train.GradientDescentOptimizer(args.lr)
         train_op = optimizer.apply_gradients(zip(clipped_gradients, params), global_step=global_step)
+
 
         # Summary
         loss_summary = tf.summary.scalar("loss", model.loss)
@@ -121,12 +125,12 @@ def train(train_x, train_y, test_x, test_y, args):
 def build_dataset(text_dirs, label_map, args, m, type='train'):
     inputs = []
     outputs = []
-    pkl_folder=os.path.join(args.model_dir,type)
+    pkl_folder = os.path.join(args.model_dir, type)
     if not os.path.exists(pkl_folder):
         os.makedirs(pkl_folder)
     for file_path, label in zip(text_dirs, args.labels):
-        file_name=os.path.split(file_path)[-1]
-        pkl_path = os.path.join(pkl_folder,file_name + '.pkl')
+        file_name = os.path.split(file_path)[-1]
+        pkl_path = os.path.join(pkl_folder, file_name + '.pkl')
         if os.path.exists(pkl_path):
             with open(pkl_path, 'rb') as f:
                 x = pkl.load(f)
@@ -182,7 +186,7 @@ if __name__ == "__main__":
     parser.add_argument("--infer_epochs", type=int, default=1000, help="epoch num for inferring sentence vector")
     parser.add_argument("--start_lr", type=float, default=0.01, help="start learning rate for inferring")
     args = parser.parse_args()
-    args.pre_trained="doc2vec"
+    args.pre_trained = "doc2vec"
 
     dataset_dir = os.path.join("dataset", args.data_folder, args.data_type)
     train_text_dirs = []
@@ -221,8 +225,10 @@ if __name__ == "__main__":
     print("loading model...")
     m = g.Doc2Vec.load(os.path.join(model_dir, 'model.bin'))
     print("inferring doc vectors and preparing dataset...")
-    train_x, train_y = build_dataset(train_text_dirs, label_map, args, m,'train')
-    test_x, test_y = build_dataset(test_text_dirs, label_map, args, m,'test')
+    train_x, train_y = build_dataset(train_text_dirs, label_map, args, m, 'train')
+    test_x, test_y = build_dataset(test_text_dirs, label_map, args, m, 'test')
     logout_config(args, train_y, test_y)
     print("begin training...")
     train(train_x, train_y, test_x, test_y, args)
+
+

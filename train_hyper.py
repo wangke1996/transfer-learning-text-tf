@@ -6,7 +6,7 @@ import time
 import numpy as np
 from model.word_rnn import WordRNN
 from data_utils import build_word_dict, build_word_dataset, batch_iter, download_dbpedia
-from data_helper import write_csv_files,write_csv_file
+from data_helper import write_csv_files
 
 
 # NUM_CLASS = 2
@@ -31,7 +31,9 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
     with tf.Session() as sess:
         BATCH_SIZE = args.batch_size
         NUM_EPOCHS = args.num_epochs
-        model = WordRNN(vocabulary_size, args.max_document_len, len(args.labels), hidden_layer_num=args.hidden_layers)
+        model = WordRNN(vocabulary_size, args.max_document_len, len(args.labels), hidden_layer_num=args.hidden_layers,
+                        embedding_size=args.embedding_size, num_hidden=args.num_hidden,
+                        fc_num_hidden=args.fc_num_hidden)
 
         # Define training procedure
         global_step = tf.Variable(0, trainable=False)
@@ -164,18 +166,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # parameters for data
     parser.add_argument("--data_folder", type=str, default="ACL", help="ACL | Markov | huffman_tree | two_tree")
-    parser.add_argument("--data_type", type=str, default="news", help="movie | news | tweet")
-    parser.add_argument("--unlabeled_data_num", type=int, default=0,
-                        help="how many unlabeled data samples was used in pretrain")
+    parser.add_argument("--data_type", type=str, default="tweet", help="movie | news | tweet")
+    parser.add_argument("--labeled_data_num", type=int, default=8000, help="train data samples for each label")
     parser.add_argument("--test_data_num", type=int, default=2000, help="test data samples for each label")
     parser.add_argument("--labels", nargs='+', type=int, default=[0, 1], help="classes to classify")
 
     # parameters for model
     parser.add_argument("--pre_trained", type=str, default="none", help="none | auto_encoder | language_model")
-    parser.add_argument("--labeled_data_num", type=int, default=8000, help="train data samples for each label")
-    parser.add_argument("--hidden_layers", type=int, default=4, help="hidden LSTM layer nums")
+    parser.add_argument("--unlabeled_data_num", type=int, default=0,
+                        help="how many unlabeled data samples was used in pretrain")
+    parser.add_argument("--hidden_layers", type=int, default=1, help="hidden LSTM layer nums")
     parser.add_argument("--embedding_size", type=int, default=256, help="embedding size")
-    parser.add_argument("--num_hidden", type=int, default=100, help="hidden LSTM ceil nums in each layer")
+    parser.add_argument("--num_hidden", type=int, default=512, help="hidden LSTM ceil nums in each layer")
     parser.add_argument("--fc_num_hidden", type=int, default=256, help="hidden full connect ceil nums before softmax")
 
     # parameters for taining
@@ -214,6 +216,7 @@ if __name__ == "__main__":
 
     model_dir = os.path.join(args.pre_trained, args.data_folder, args.data_type, str(args.unlabeled_data_num))
     path = os.path.join(model_dir, 'bit_'.join([str(x) for x in args.labels]) + 'bit_' + str(args.labeled_data_num))
+    path = os.path.join(path, '_'.join([str(args.max_document_len), str(args.num_hidden), str(args.hidden_layers)]))
     if os.path.exists(path) is not True:
         os.makedirs(path)
     args.summary_dir = path
@@ -225,14 +228,7 @@ if __name__ == "__main__":
     test_path = os.path.join(path, 'test.csv')
     print("\nBuilding dictionary..")
     if args.pre_trained == 'none':
-        unlabeled_csv_file = 'unlabeled_150000.csv'
-        unlabeled_csv_path = os.path.join(model_dir, unlabeled_csv_file)
-        if not os.path.exists(unlabeled_csv_path):
-            write_csv_file([os.path.join(dataset_dir, args.data_type + '.txt')], [-1], model_dir, unlabeled_csv_file, 150000)
-        print("\nBuilding dictionary..")
-        word_dict = build_word_dict(model_dir, 20000, unlabeled_csv_path)
-        print("Preprocessing dataset..")
-        # word_dict = build_word_dict(model_dir, None, train_path)
+        word_dict = build_word_dict(model_dir, None, train_path)
     else:
         word_dict = build_word_dict(model_dir, None)
     print("Preprocessing dataset..")
