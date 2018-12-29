@@ -12,8 +12,15 @@ if __name__ == "__main__":
     parser.add_argument("--labeled_data_nums", nargs='+', type=int, default=[200, 500, 1000, 2000, 4000, 6000, 8000],
                         help="train data samples for each label")
     parser.add_argument("--labels", nargs='+', type=int, default=[0, 1], help="classes to classify")
-    parser.add_argument("--positive_label", type=int, default=1, help="which label to be positive samples, -1 for average")
+    parser.add_argument("--positive_label", type=int, default=1,
+                        help="which label to be positive samples, -1 for average")
+    parser.add_argument("--bi_directional", type=str, default="False", help="whether to use bi-directional LSTM")
+    parser.add_argument("--hidden_layers_bi", type=int, default=2,
+                        help="hidden LSTM layer nums if bi_directional is true")
+    parser.add_argument("--num_hidden_bi", type=int, default=100,
+                        help="hidden LSTM cell nums in each layer if bi_directional is true")
     args = parser.parse_args()
+    args.bi_directional = True if args.bi_directional.lower() in ("yes", "true", "t", "1") else False
 
     output_file_path = os.path.join(args.pre_trained, args.data_folder, args.data_type,
                                     'bit_'.join([str(x) for x in args.labels]) + 'bit_result')
@@ -22,7 +29,8 @@ if __name__ == "__main__":
     output_file_path = os.path.join(output_file_path,
                                     '_'.join([str(x) for x in args.unlabeled_data_nums]) + '_unlabeled_' + '_'.join(
                                         [str(x) for x in args.labeled_data_nums]) + '_labeled_positive_' + str(
-                                        args.positive_label) + '.csv')
+                                        args.positive_label) + ('_bi_' + str(args.hidden_layers_bi) + '_' + str(
+                                        args.num_hidden_bi) if args.bi_directional else '') + '.csv')
 
     result_dict = dict()
     for unlabeled_data_num in args.unlabeled_data_nums:
@@ -30,8 +38,11 @@ if __name__ == "__main__":
         pre_dir = os.path.join(args.pre_trained, args.data_folder, args.data_type, str(unlabeled_data_num))
         for train_data_num in args.labeled_data_nums:
             result_dict[unlabeled_data_num][train_data_num] = dict()
-            file_path = os.path.join(pre_dir, 'bit_'.join([str(x) for x in args.labels]) + 'bit_' + str(train_data_num),
-                                     'accuracy.txt')
+            file_path = os.path.join(pre_dir, 'bit_'.join([str(x) for x in args.labels]) + 'bit_' + str(train_data_num))
+            if args.bi_directional:
+                file_path = os.path.join(file_path,
+                                         'bi_directional_%d_%d' % (args.hidden_layers_bi, args.num_hidden_bi))
+            file_path = os.path.join(file_path, 'accuracy.txt')
             with open(file_path, 'r', encoding='utf8') as f:
                 lines = f.read().splitlines()
                 i = -1
@@ -52,17 +63,17 @@ if __name__ == "__main__":
             specificities = [float(x) for x in
                              re.search(r'[^\[]+$',
                                        re.search(r'specificity:[^\]]+', last_line).group()).group().strip().split()]
-            TP=[round(train_data_num*x) for x in recalls]
-            FN=[train_data_num-x for x in TP]
-            FP=[round(x/y-x) for (x,y) in zip(TP,precisions)]
-            TN=[round(train_data_num*(len(args.labels)-1)*x) for x in specificities]
-            average_precision=sum(TP)/(sum(TP)+sum(FP))
-            average_recall=sum(TP)/(sum(TP)+sum(FN))
-            average_fscore=2*average_precision*average_recall/(average_precision+average_recall)
-            average_specificity=sum(TN)/(sum(TN)+sum(FP))
-            average_accuracy=(sum(TP)+sum(TN))/(sum(TP)+sum(TN)+sum(FP)+sum(FN))
+            TP = [round(train_data_num * x) for x in recalls]
+            FN = [train_data_num - x for x in TP]
+            FP = [round(x / y - x) for (x, y) in zip(TP, precisions)]
+            TN = [round(train_data_num * (len(args.labels) - 1) * x) for x in specificities]
+            average_precision = sum(TP) / (sum(TP) + sum(FP))
+            average_recall = sum(TP) / (sum(TP) + sum(FN))
+            average_fscore = 2 * average_precision * average_recall / (average_precision + average_recall)
+            average_specificity = sum(TN) / (sum(TN) + sum(FP))
+            average_accuracy = (sum(TP) + sum(TN)) / (sum(TP) + sum(TN) + sum(FP) + sum(FN))
 
-            precisions.append(sum(precisions)/len(precisions))
+            precisions.append(sum(precisions) / len(precisions))
             recalls.append(sum(recalls) / len(recalls))
             fscores.append(sum(fscores) / len(fscores))
             accuracies.append(sum(accuracies) / len(accuracies))

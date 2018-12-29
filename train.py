@@ -6,7 +6,8 @@ import time
 import numpy as np
 from model.word_rnn import WordRNN
 from data_utils import build_word_dict, build_word_dataset, batch_iter, download_dbpedia
-from data_helper import write_csv_files,write_csv_file
+from data_helper import write_csv_files, write_csv_file
+from sklearn import metrics
 
 
 # NUM_CLASS = 2
@@ -31,7 +32,23 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
     with tf.Session() as sess:
         BATCH_SIZE = args.batch_size
         NUM_EPOCHS = args.num_epochs
-        model = WordRNN(vocabulary_size, args.max_document_len, len(args.labels), hidden_layer_num=args.hidden_layers)
+        model = WordRNN(vocabulary_size, args.max_document_len, len(args.labels), hidden_layer_num=args.hidden_layers,
+                        bi_direction=args.bi_directional, num_hidden=args.num_hidden,
+                        embedding_size=args.embedding_size, fc_num_hidden=args.fc_num_hidden,
+                        hidden_layer_num_bi=args.hidden_layers_bi, num_hidden_bi=args.num_hidden_bi)
+        total_parameters = 0
+        for variable in tf.trainable_variables():
+            # shape is an array of tf.Dimension
+            shape = variable.get_shape()
+            print(shape)
+            # print(len(shape))
+            variable_parameters = 1
+            for dim in shape:
+                # print(dim)
+                variable_parameters *= dim.value
+            # print(variable_parameters)
+            total_parameters += variable_parameters
+        print('total parameters: %d ' % total_parameters)
 
         # Define training procedure
         global_step = tf.Variable(0, trainable=False)
@@ -45,6 +62,8 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
         loss_summary = tf.summary.scalar("loss", model.loss)
         summary_op = tf.summary.merge_all()
         summary_writer = tf.summary.FileWriter(args.summary_dir, sess.graph)
+        # Checkpoint
+        saver = tf.train.Saver(tf.global_variables())
 
         # Initialize all variables
         sess.run(tf.global_variables_initializer())
@@ -54,9 +73,9 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
             pre_trained_variables = [v for v in tf.global_variables()
                                      if (v.name.startswith("embedding") or v.name.startswith(
                     "rnn")) and "Adam" not in v.name]
-            saver = tf.train.Saver(pre_trained_variables)
+            saver_pre = tf.train.Saver(pre_trained_variables)
             ckpt = tf.train.get_checkpoint_state(args.model_dir)
-            saver.restore(sess, ckpt.model_checkpoint_path)
+            saver_pre.restore(sess, ckpt.model_checkpoint_path)
 
         def train_step(batch_x, batch_y):
             feed_dict = {
@@ -72,17 +91,28 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
                 with open(os.path.join(args.summary_dir, "accuracy.txt"), "a") as f:
                     print("step {0} : loss = {1}".format(step, loss), file=f)
                 print("step {0} : loss = {1}".format(step, loss))
+            return loss
 
-        def test_accuracy(test_x, test_y):
-            test_batches = batch_iter(test_x, test_y, BATCH_SIZE, 1)
+        def prediction(x, y):
+            batches = batch_iter(x, y, BATCH_SIZE, 1)
             outputs = []
             predictions = []
-            for test_batch_x, test_batch_y in test_batches:
-                accuracy, prediction = sess.run([model.accuracy, model.predictions],
-                                                feed_dict={model.x: test_batch_x, model.y: test_batch_y,
-                                                           model.keep_prob: 1.0})
+            logits = []
+            for batch_x, batch_y in batches:
+                logit, prediction = sess.run([model.logits, model.predictions],
+                                             feed_dict={model.x: batch_x, model.y: batch_y,
+                                                        model.keep_prob: 1.0})
+                logits.extend(logit)
                 predictions.extend(prediction.tolist())
-                outputs.extend(test_batch_y.tolist())
+                outputs.extend(batch_y.tolist())
+            return logits, predictions, outputs
+
+        def train_accuracy():
+            _, predictions, ouputs = prediction(train_x, train_y)
+            return sum(np.equal(predictions, ouputs)) / len(ouputs)
+
+        def test_accuracy(test_x, test_y):
+            _, predictions, outputs = prediction(test_x, test_y)
             labels = np.unique(outputs)
             labels_count_TP = np.array([np.sum(b.astype(int)) for b in
                                         [np.logical_and(np.equal(outputs, label_x), np.equal(predictions, label_x)) for
@@ -111,12 +141,14 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
 
             return precisions, recalls, fscores, accuracies, specificities, all_accuracy, outputs, predictions
 
-        def write_accuracy(precisions, recalls, fscores, accuracies, specificities, all_accuracy, step):
+        def write_accuracy(train_acc, precisions, recalls, fscores, accuracies, specificities, all_accuracy, step):
             with open(os.path.join(args.summary_dir, "accuracy.txt"), "a") as f:
+                print('step %d: train_acc: %f' % (step, train_acc), file=f)
                 print(
                     "step %d: precision: %s, recall: %s, fscore: %s, accuracy: %s, specificity: %s, all_accuracy: %s" % (
                         step, str(precisions), str(recalls), str(fscores), str(accuracies), str(specificities),
                         str(all_accuracy)), file=f)
+            print('step %d: train_acc: %f' % (step, train_acc))
             print(
                 "step %d: precision: %s, recall: %s, fscore: %s, accuracy: %s, specificity: %s, all_accuracy: %s" % (
                     step, str(precisions), str(recalls), str(fscores), str(accuracies), str(specificities),
@@ -125,19 +157,51 @@ def train(train_x, train_y, test_x, test_y, vocabulary_size, args):
 
         # Training loop
         batches = batch_iter(train_x, train_y, BATCH_SIZE, NUM_EPOCHS)
-
+        steps = []
+        losses = []
+        train_acc = []
+        test_acc = []
+        num_batches_per_epoch = (len(train_y) - 1) // BATCH_SIZE + 1
         for batch_x, batch_y in batches:
-            train_step(batch_x, batch_y)
+            loss = train_step(batch_x, batch_y)
             step = tf.train.global_step(sess, global_step)
-
-            if step % 200 == 0:
+            if step % num_batches_per_epoch == 0 or (step < num_batches_per_epoch and step % 10 == 0):
+                acc = train_accuracy()
                 test_p, test_r, test_f, test_a, test_s, test_aa, _, _ = test_accuracy(test_x, test_y)
-                write_accuracy(test_p, test_r, test_f, test_a, test_s, test_aa, step)
+                write_accuracy(acc, test_p, test_r, test_f, test_a, test_s, test_aa, step)
+                steps.append(step)
+                losses.append(loss)
+                train_acc.append(acc)
+                test_acc.append(test_aa)
+                if loss < 1e-6 or acc > 0.9999:
+                    break
+            if step % 5000 == 0:
+                saver.save(sess, os.path.join(args.summary_dir, "model.ckpt"), global_step=step)
+        saver.save(sess, os.path.join(args.summary_dir, "model.ckpt"), global_step=step)
+        acc = train_accuracy()
         test_p, test_r, test_f, test_a, test_s, test_aa, labels, predictions = test_accuracy(test_x, test_y)
-        write_accuracy(test_p, test_r, test_f, test_a, test_s, test_aa, step)
+        write_accuracy(acc, test_p, test_r, test_f, test_a, test_s, test_aa, step)
+        steps.append(step)
+        losses.append(loss)
+        train_acc.append(acc)
+        test_acc.append(test_aa)
         with open(os.path.join(args.summary_dir, "LabelsAndPredictions"), "wb") as f:
             final_result = {'labels': labels, 'predictions': predictions}
             pkl.dump(final_result, f)
+
+        def roc_curve(x, y):
+            logits, _, outputs = prediction(x, y)
+            logits = np.array(logits)
+            prob = logits[:, 1] - logits[:, 0]
+            return metrics.roc_curve(np.array(outputs), prob, pos_label=1)
+
+        with open(os.path.join(args.summary_dir, "LossCurve.pkl"), "wb") as f:
+            loss_curve = {'step': steps, 'loss': losses, 'train_acc': train_acc, 'test_acc': test_acc}
+            pkl.dump(loss_curve, f)
+        fpr, tpr, thresholds = roc_curve(test_x, test_y)
+        with open(os.path.join(args.summary_dir, "RocCurveData.pkl"), "wb") as f:
+            roc_data = {'fpr': fpr.tolist(), 'tpr': tpr.tolist(), 'thresholds': thresholds.tolist()}
+            pkl.dump(roc_data, f)
 
 
 def logout_config(args, train_y, test_y):
@@ -173,19 +237,25 @@ if __name__ == "__main__":
     # parameters for model
     parser.add_argument("--pre_trained", type=str, default="none", help="none | auto_encoder | language_model")
     parser.add_argument("--labeled_data_num", type=int, default=8000, help="train data samples for each label")
-    parser.add_argument("--hidden_layers", type=int, default=4, help="hidden LSTM layer nums")
+    parser.add_argument("--hidden_layers", type=int, default=3, help="hidden LSTM layer nums")
     parser.add_argument("--embedding_size", type=int, default=256, help="embedding size")
-    parser.add_argument("--num_hidden", type=int, default=100, help="hidden LSTM ceil nums in each layer")
+    parser.add_argument("--num_hidden", type=int, default=200, help="hidden LSTM cell nums in each layer")
+    parser.add_argument("--hidden_layers_bi", type=int, default=2,
+                        help="hidden LSTM layer nums if bi_directional is true")
+    parser.add_argument("--num_hidden_bi", type=int, default=100,
+                        help="hidden LSTM cell nums in each layer if bi_directional is true")
+    parser.add_argument("--bi_directional", type=str, default="False", help="whether to use bi-directional LSTM")
     parser.add_argument("--fc_num_hidden", type=int, default=256, help="hidden full connect ceil nums before softmax")
 
     # parameters for taining
     parser.add_argument("--lr", type=float, default=0.001, help="learning rate")
-    parser.add_argument("--num_epochs", type=int, default=40, help="epoch num")
+    parser.add_argument("--num_epochs", type=int, default=100, help="epoch num")
     parser.add_argument("--batch_size", type=int, default=128, help="batch size")
     parser.add_argument("--keep_prob", type=float, default=0.5, help="keep prob for drop out")
     parser.add_argument("--up_sample", type=int, default=0, help="up samples for each class, 0 for non-up samples")
     parser.add_argument("--max_document_len", type=int, default=30, help="max length of sentence")
     args = parser.parse_args()
+    args.bi_directional = True if args.bi_directional.lower() in ("yes", "true", "t", "1") else False
 
     dataset_dir = os.path.join("dataset", args.data_folder, args.data_type)
     train_text_dirs = []
@@ -214,6 +284,8 @@ if __name__ == "__main__":
 
     model_dir = os.path.join(args.pre_trained, args.data_folder, args.data_type, str(args.unlabeled_data_num))
     path = os.path.join(model_dir, 'bit_'.join([str(x) for x in args.labels]) + 'bit_' + str(args.labeled_data_num))
+    if args.bi_directional:
+        path = os.path.join(path, 'bi_directional_' + str(args.hidden_layers_bi) + '_' + str(args.num_hidden_bi))
     if os.path.exists(path) is not True:
         os.makedirs(path)
     args.summary_dir = path
@@ -228,7 +300,8 @@ if __name__ == "__main__":
         unlabeled_csv_file = 'unlabeled_150000.csv'
         unlabeled_csv_path = os.path.join(model_dir, unlabeled_csv_file)
         if not os.path.exists(unlabeled_csv_path):
-            write_csv_file([os.path.join(dataset_dir, args.data_type + '.txt')], [-1], model_dir, unlabeled_csv_file, 150000)
+            write_csv_file([os.path.join(dataset_dir, args.data_type + '.txt')], [-1], model_dir, unlabeled_csv_file,
+                           150000)
         print("\nBuilding dictionary..")
         word_dict = build_word_dict(model_dir, 20000, unlabeled_csv_path)
         print("Preprocessing dataset..")

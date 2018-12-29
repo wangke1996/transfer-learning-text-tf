@@ -12,24 +12,35 @@ if __name__ == "__main__":
     parser.add_argument("--labeled_data_num", type=int, default=8000, help="train data samples for each label")
     parser.add_argument("--positive_label", type=int, default=1,
                         help="which label to be positive samples, -1 for average")
+    parser.add_argument("--bi_directional", type=str, default="False", help="whether to use bi-directional LSTM")
+    parser.add_argument("--hidden_layers_bi", type=int, default=2,
+                        help="hidden LSTM layer nums if bi_directional is true")
+    parser.add_argument("--num_hidden_bi", type=int, default=100,
+                        help="hidden LSTM cell nums in each layer if bi_directional is true")
     args = parser.parse_args()
+    args.bi_directional = True if args.bi_directional.lower() in ("yes", "true", "t", "1") else False
 
-    output_file_path = os.path.join(args.pre_trained, args.data_folder, args.data_type,'0bit_12345bit_result')
+    output_file_path = os.path.join(args.pre_trained, args.data_folder, args.data_type, '0bit_12345bit_result')
     if not os.path.exists(output_file_path):
         os.makedirs(output_file_path)
     output_file_path = os.path.join(output_file_path,
-                                    '_'.join([str(x) for x in args.unlabeled_data_nums]) + '_unlabeled_' + str(args.labeled_data_num) + '_labeled_positive_' + str(
-                                        args.positive_label) + '.csv')
+                                    '_'.join([str(x) for x in args.unlabeled_data_nums]) + '_unlabeled_' + str(
+                                        args.labeled_data_num) + '_labeled_positive_' + str(args.positive_label) + (
+                                        '_bi_' + str(args.hidden_layers_bi) + '_' + str(
+                                            args.num_hidden_bi) if args.bi_directional else '') + '.csv')
 
     result_dict = dict()
-    train_data_num=args.labeled_data_num
+    train_data_num = args.labeled_data_num
     for unlabeled_data_num in args.unlabeled_data_nums:
         result_dict[unlabeled_data_num] = dict()
         pre_dir = os.path.join(args.pre_trained, args.data_folder, args.data_type, str(unlabeled_data_num))
-        for bit in [1,2,3,4,5]:
+        for bit in [1, 2, 3, 4, 5]:
             result_dict[unlabeled_data_num][bit] = dict()
-            file_path = os.path.join(pre_dir, '0bit_'+str(bit)+ 'bit_' + str(train_data_num),
-                                     'accuracy.txt')
+            file_path = os.path.join(pre_dir, '0bit_' + str(bit) + 'bit_' + str(train_data_num))
+            if args.bi_directional:
+                file_path = os.path.join(file_path,
+                                         'bi_directional_%d_%d' % (args.hidden_layers_bi, args.num_hidden_bi))
+            file_path = os.path.join(file_path, 'accuracy.txt')
             with open(file_path, 'r', encoding='utf8') as f:
                 lines = f.read().splitlines()
                 i = -1
@@ -60,7 +71,7 @@ if __name__ == "__main__":
             average_specificity = sum(TN) / (sum(TN) + sum(FP))
             average_accuracy = (sum(TP) + sum(TN)) / (sum(TP) + sum(TN) + sum(FP) + sum(FN))
 
-            precisions.append(sum(precisions)/len(precisions))
+            precisions.append(sum(precisions) / len(precisions))
             recalls.append(sum(recalls) / len(recalls))
             fscores.append(sum(fscores) / len(fscores))
             accuracies.append(sum(accuracies) / len(accuracies))
@@ -83,9 +94,9 @@ if __name__ == "__main__":
         for unlabeled_data_num in args.unlabeled_data_nums:
             f.write(',' + str(unlabeled_data_num))
         f.write('\n')
-        for bit in [1,2,3,4,5]:
+        for bit in [1, 2, 3, 4, 5]:
             for content in ['precision', 'recall', 'fscore', 'specificity', 'accuracy', 'all_accuracy']:
-                f.write('0'+str(bit) + 'bit,' + content)
+                f.write('0' + str(bit) + 'bit,' + content)
                 for unlabeled_data_num in args.unlabeled_data_nums:
                     f.write(',' + str(result_dict[unlabeled_data_num][bit][content]))
                 f.write('\n')
